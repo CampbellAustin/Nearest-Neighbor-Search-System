@@ -5,9 +5,9 @@ A high-performance spatial search system built in Java that indexes 2D geographi
 ## Features
 - **2D k-d Tree Implementation:** Efficient spatial partitioning for fast multidimensional search.
 - **Branch-and-Bound Pruning:** Recursive search optimization that discards entire subtrees that cannot contain a closer neighbor.
-- **Grid-Based Spatial Hashing:** Constant-time deduplication to filter duplicate coordinate points[cite: 1].
-- **Performance:** Achieves an approximate 25x query speedup compared to standard brute-force linear search baselines[cite: 1].
+- **Grid-Based Spatial Hashing:** Constant-time deduplication to filter duplicate coordinate points
+- **Performance:** Achieves an approximate 25x query speedup compared to standard brute-force linear search baselines
 
 ## Technologies Used
-- **Language:** Java[cite: 1]
+- **Language:** Java
 - **Core Concepts:** Binary Trees, Spatial Data Structures, Algorithmic Optimization, Recursion
