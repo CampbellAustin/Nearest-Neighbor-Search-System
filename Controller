@@ -1,0 +1,479 @@
+import java.io.BufferedReader;
+import java.io.FileReader;
+import java.io.IOException;
+import java.util.HashSet;
+import java.util.Random;
+import java.util.Set;
+
+/**
+ * Note : DO NOT CHANGE THIS FILE!!!
+ * Do very rudimentary timing of the getNearest method, as well as very small
+ * sampling to measure accuracy. You may wish to increase the amount of both.
+ *
+ * @author amjadm
+ */
+public class Controller {
+    private static final String FILE_NAME = "starbucks.csv";
+    private static final int NUM_TRIALS = 100000;
+    private static final double DUPLICATE_TOLERANCE = 0.00001;
+    private static final double ACCURACY_TOLERANCE = 0.000001;
+
+    /**
+     * Reads the Starbucks CSV file and returns an array of Location objects.
+     *
+     * The expected file format is:
+     * count
+     * city,lat,lng,address,services
+     *
+     * @return an array of Location objects read from the CSV file,
+     *         or null if the file cannot be read
+     */
+    public static Location[] readEntryList() {
+        Location[] ret = null;
+
+        try (BufferedReader br =
+                new BufferedReader(new FileReader(FILE_NAME), 65536)) {
+            int count = readLocationCount(br);
+
+            ret = new Location[count];
+
+            br.readLine();
+
+            for (int i = 0; i < count; i++) {
+                ret[i] = parseLocation(br.readLine());
+            }
+        } catch (Exception e) {
+            e.printStackTrace(System.out);
+        }
+
+        return ret;
+    }
+
+    /**
+     * Reads and parses the first line of the CSV file, which contains
+     * the number of locations.
+     *
+     * @param br the BufferedReader used to read the CSV file
+     * @return the number of locations in the file
+     * @throws IOException if the first line cannot be read
+     */
+    private static int readLocationCount(BufferedReader br)
+            throws IOException {
+        String line = br.readLine();
+
+        int commaIndex = line.indexOf(',');
+
+        if (commaIndex == -1) {
+            return Integer.parseInt(line.trim());
+        }
+
+        return Integer.parseInt(line.substring(0, commaIndex).trim());
+    }
+
+    /**
+     * Converts one CSV row into a Location object.
+     *
+     * The expected row format is:
+     * city,lat,lng,address,services
+     *
+     * @param line the CSV row to parse
+     * @return a Location object containing the row data
+     */
+    private static Location parseLocation(String line) {
+        int comma1 = line.indexOf(',');
+        int comma2 = line.indexOf(',', comma1 + 1);
+        int comma3 = line.indexOf(',', comma2 + 1);
+        int comma4 = line.indexOf(',', comma3 + 1);
+
+        String city = line.substring(0, comma1);
+
+        double lat = Double.parseDouble(line.substring(comma1 + 1, comma2));
+        double lng = Double.parseDouble(line.substring(comma2 + 1, comma3));
+
+        String address = line.substring(comma3 + 1, comma4);
+        String services = line.substring(comma4 + 1);
+
+        return new Location(city, address, lng, lat, services);
+    }
+
+    /**
+     * Finds and returns a deep copy of the nearest Starbucks location that
+     * offers all requested services.
+     *
+     * Locations that do not offer every requested service are ignored.
+     *
+     * @param lng      the longitude of the query point, in degrees
+     * @param lat      the latitude of the query point, in degrees
+     * @param slocs    the array of Starbucks locations to search
+     * @param services the required services
+     * @return a deep copy of the nearest matching Location object,
+     *         or null if no matching location is found
+     */
+    public static Location bruteGetNearest(
+            double lng, double lat, Location[] slocs, Set<String> services) {
+        double bestDist = Double.MAX_VALUE;
+        int bestIndex = -1;
+
+        for (int i = 0; i < slocs.length; i++) {
+            if (slocs[i].hasServices(services)) {
+                double currentDist = Starbucks.distance(
+                        slocs[i].lng, slocs[i].lat, lng, lat);
+
+                if (currentDist < bestDist) {
+                    bestDist = currentDist;
+                    bestIndex = i;
+                }
+            }
+        }
+
+        if (bestIndex == -1) {
+            return null;
+        }
+
+        return new Location(slocs[bestIndex]);
+    }
+
+    public static void main(String[] args) {
+        Starbucks sS = new StudentStarbucks();
+
+        Location[] slocs = readEntryList();
+
+        if (slocs == null) {
+            System.out.println("Could not read " + FILE_NAME);
+            return;
+        }
+
+        Location[] slocsCopy = deepCopyLocations(slocs);
+
+        Random rng = new Random(5);
+        double[][] testPoints = generateTestPoints(rng);
+        Set<String> requestedServices = getRandomRequestedServices(rng);
+
+        shuffleLocations(slocsCopy, rng);
+
+        Location[] cleanedSlocs = removeDuplicates(slocsCopy);
+
+        System.out.println("\n==> Start Testing. Please wait....");
+
+        buildAndPrintTime(sS, slocsCopy);
+
+        System.out.println("Measuring your solution time....");
+
+        double bruteForceSpeed =
+                timeBruteForce(cleanedSlocs, requestedServices, testPoints);
+
+        double studentSpeed =
+                timeStudentSolution(sS, requestedServices, testPoints);
+
+        printSpeedResults(bruteForceSpeed, studentSpeed);
+
+        testAccuracy(sS, cleanedSlocs, requestedServices, testPoints);
+
+        System.out.println("Testing is done!\n");
+    }
+
+    /**
+     * Creates a deep copy of the given Location array.
+     *
+     * @param slocs the original array of locations
+     * @return a deep copy of the given array
+     */
+    private static Location[] deepCopyLocations(Location[] slocs) {
+        Location[] copy = new Location[slocs.length];
+
+        for (int i = 0; i < slocs.length; i++) {
+            copy[i] = new Location(slocs[i]);
+        }
+
+        return copy;
+    }
+
+    /**
+     * Removes duplicate Starbucks locations using the same coordinate rule
+     * required by StudentStarbucks.build.
+     *
+     * If two locations have coordinates such that both
+     * |x1 - x2| <= 0.00001 and |y1 - y2| <= 0.00001,
+     * only the first one encountered is kept.
+     *
+     * @param allLocations the array of locations to clean
+     * @return a new array with duplicate coordinate locations removed
+     */
+    private static Location[] removeDuplicates(Location[] allLocations) {
+        if (allLocations == null) {
+            return new Location[0];
+        }
+
+        Location[] temp = new Location[allLocations.length];
+        int count = 0;
+
+        for (int i = 0; i < allLocations.length; i++) {
+            Location current = allLocations[i];
+
+            if (current == null) {
+                continue;
+            }
+
+            boolean duplicate = false;
+
+            for (int j = 0; j < count; j++) {
+                if (Math.abs(current.lng - temp[j].lng) <= DUPLICATE_TOLERANCE
+                        && Math.abs(current.lat - temp[j].lat)
+                                <= DUPLICATE_TOLERANCE) {
+                    duplicate = true;
+                    break;
+                }
+            }
+
+            if (!duplicate) {
+                temp[count] = new Location(current);
+                count++;
+            }
+        }
+
+        Location[] result = new Location[count];
+
+        for (int i = 0; i < count; i++) {
+            result[i] = temp[i];
+        }
+
+        return result;
+    }
+
+    /**
+     * Randomly creates a set of requested services.
+     *
+     * The returned set contains at least one service and may contain up to all
+     * available services.
+     *
+     * @param rng the random number generator
+     * @return a randomly generated set of requested services
+     */
+    private static Set<String> getRandomRequestedServices(Random rng) {
+        String[] allServices =
+                { "drive thru", "24/7", "cold brew", "breakfast" };
+
+        Set<String> requestedServices = new HashSet<String>();
+
+        int numberOfServices = 1 + rng.nextInt(allServices.length);
+
+        while (requestedServices.size() < numberOfServices) {
+            requestedServices.add(
+                    allServices[rng.nextInt(allServices.length)]);
+        }
+
+        return requestedServices;
+    }
+
+    /**
+     * Generates random test points used for timing and accuracy testing.
+     *
+     * Each row contains two values:
+     * index 0 is longitude
+     * index 1 is latitude
+     *
+     * @param rng the random number generator
+     * @return a two dimensional array of random test points
+     */
+    private static double[][] generateTestPoints(Random rng) {
+        double[][] testPoints = new double[NUM_TRIALS][2];
+
+        for (int i = 0; i < NUM_TRIALS; i++) {
+            testPoints[i][0] = randomLongitude(rng);
+            testPoints[i][1] = randomLatitude(rng);
+        }
+
+        return testPoints;
+    }
+
+    /**
+     * Randomly shuffles the given array of locations.
+     *
+     * @param slocs the locations to shuffle
+     * @param rng the random number generator used for shuffling
+     */
+    private static void shuffleLocations(Location[] slocs, Random rng) {
+        for (int i = 0; i < slocs.length; i++) {
+            int j = i + (int) (rng.nextDouble() * (slocs.length - i));
+
+            Location temp = slocs[i];
+            slocs[i] = slocs[j];
+            slocs[j] = temp;
+        }
+    }
+
+    /**
+     * Builds the Starbucks data structure and prints the build time.
+     *
+     * @param sS the Starbucks object to build
+     * @param slocs the locations used to build the data structure
+     */
+    private static void buildAndPrintTime(Starbucks sS, Location[] slocs) {
+        System.out.println("Measuring build time....");
+
+        long start = System.nanoTime();
+
+        sS.build(slocs);
+
+        long end = System.nanoTime();
+
+        System.out.println("\tBuilding your data structure took: "
+                + (end - start) / 1000000.0
+                + " milliseconds (time not very accurate)");
+    }
+
+    /**
+     * Measures the average time required by the brute force solution.
+     *
+     * @param originalLocations the locations searched by brute force
+     * @param requestedServices the services required by the search
+     * @param testPoints the test coordinates used for the searches
+     * @return the average time per search in milliseconds
+     */
+    private static double timeBruteForce(
+            Location[] originalLocations,
+            Set<String> requestedServices,
+            double[][] testPoints) {
+
+        long start = System.nanoTime();
+
+        for (int i = 0; i < testPoints.length; i++) {
+            double x = testPoints[i][0];
+            double y = testPoints[i][1];
+
+            Location tmp = bruteGetNearest(
+                    x,
+                    y,
+                    originalLocations,
+                    requestedServices);
+        }
+
+        long end = System.nanoTime();
+
+        return ((end - start) / 1000000.0) / testPoints.length;
+    }
+
+    /**
+     * Measures the average time required by the student solution.
+     *
+     * @param sS the Starbucks object being tested
+     * @param requestedServices the services required by the search
+     * @param testPoints the test coordinates used for the searches
+     * @return the average time per search in milliseconds
+     */
+    private static double timeStudentSolution(
+            Starbucks sS,
+            Set<String> requestedServices,
+            double[][] testPoints) {
+
+        long start = System.nanoTime();
+
+        for (int i = 0; i < testPoints.length; i++) {
+            double x = testPoints[i][0];
+            double y = testPoints[i][1];
+
+            Location tmp = sS.getNearest(x, y, requestedServices);
+        }
+
+        long end = System.nanoTime();
+
+        double studentSpeed = ((end - start) / 1000000.0) / testPoints.length;
+
+        System.out.println("\tTime: " + studentSpeed + " ms per search, "
+                + testPoints.length + " trials");
+
+        return studentSpeed;
+    }
+
+    /**
+     * Prints how much faster the student solution is than brute force.
+     *
+     * @param bruteForceSpeed the brute force average search time
+     * @param studentSpeed the student solution average search time
+     */
+    private static void printSpeedResults(
+            double bruteForceSpeed,
+            double studentSpeed) {
+
+        double howManyTimesFaster = bruteForceSpeed / studentSpeed;
+
+        System.out.println("\tYour solution is about " + howManyTimesFaster
+                + " times faster than brute-force.");
+    }
+
+    /**
+     * Tests accuracy by comparing the student solution against brute force.
+     *
+     * This version counts null mistakes as wrong and compares against the
+     * duplicate removed list, matching the data used by StudentStarbucks.build.
+     *
+     * @param sS the Starbucks object being tested
+     * @param originalLocations the duplicate removed locations
+     * @param requestedServices the services required by the search
+     * @param testPoints the test coordinates used for the searches
+     */
+    private static void testAccuracy(
+            Starbucks sS,
+            Location[] originalLocations,
+            Set<String> requestedServices,
+            double[][] testPoints) {
+
+        System.out.println("Measuring the accuracy of your solution...");
+
+        int wrong = 0;
+
+        for (int i = 0; i < testPoints.length; i++) {
+            double x = testPoints[i][0];
+            double y = testPoints[i][1];
+
+            Location student = sS.getNearest(x, y, requestedServices);
+            Location opt = bruteGetNearest(
+                    x, y, originalLocations, requestedServices);
+
+            if (student == null && opt == null) {
+                continue;
+            }
+
+            if (student == null || opt == null) {
+                wrong++;
+                continue;
+            }
+
+            double studentDist =
+                    Starbucks.distance(student.lng, student.lat, x, y);
+            double optDist =
+                    Starbucks.distance(opt.lng, opt.lat, x, y);
+
+            if (studentDist > optDist + ACCURACY_TOLERANCE) {
+                wrong++;
+            }
+        }
+
+        int errorPercent =
+                (int) Math.round(100.0 * wrong / testPoints.length);
+
+        System.out.println("\tError percentage is: " + errorPercent + "%");
+    }
+
+    /**
+     * Generates a random longitude inside the approximate continental
+     * United States range.
+     *
+     * @param rng the random number generator
+     * @return a random longitude
+     */
+    private static double randomLongitude(Random rng) {
+        return -125.0 + 73.0 * rng.nextDouble();
+    }
+
+    /**
+     * Generates a random latitude inside the approximate continental
+     * United States range.
+     *
+     * @param rng the random number generator
+     * @return a random latitude
+     */
+    private static double randomLatitude(Random rng) {
+        return 24.0 + 25.0 * rng.nextDouble();
+    }
+}
